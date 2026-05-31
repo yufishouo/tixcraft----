@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>拓元搶票輔助</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <h2>拓元搶票輔助</h2>
+    
+    <div class="form-group">
+      <label for="enabled" class="checkbox-label">
+        <input type="checkbox" id="enabled"> 啟用輔助功能
+      </label>
+    </div>
+
+    <div class="form-group">
+      <label for="dateKeyword">場次/日期關鍵字 (選填):</label>
+      <input type="text" id="dateKeyword" placeholder="例如: 12/31 或 台北場">
+      <small>留空則自動點擊第一個可購票的場次</small>
+    </div>
+
+    <div class="form-group">
+      <label for="keyword">目標票價/區域關鍵字:</label>
+      <input type="text" id="keyword" placeholder="例如: 5800 或 特區">
+      <small>留空則自動點擊第一個可用區域</small>
+    </div>
+
+    <div class="form-group">
+      <label for="ticketCount">購買張數:</label>
+      <select id="ticketCount">
+        <option value="1">1 張</option>
+        <option value="2" selected>2 張</option>
+        <option value="3">3 張</option>
+        <option value="4">4 張</option>
+      </select>
+    </div>
+
+    <hr class="divider">
+    
+    <div class="form-group">
+      <label for="disableAnimation" class="checkbox-label" title="將移除所有網頁淡入淡出動畫，以最快速度顯示內容">
+        <input type="checkbox" id="disableAnimation"> 🚀 移除網頁過場動畫
+      </label>
+    </div>
+    <div class="form-group">
+      <label for="autoRefresh" class="checkbox-label" title="在尚未開賣時，每秒自動重新整理頁面直到按鈕出現">
+        <input type="checkbox" id="autoRefresh"> 🚀 開賣前自動重整
+      </label>
+    </div>
+
+    <button id="saveBtn">儲存設定</button>
+    <div id="status"></div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>
