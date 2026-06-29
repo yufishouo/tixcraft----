@@ -62,18 +62,22 @@ chrome.storage.local.get([
  */
 function autoClickBuyTicket(dateKeyword, autoRefresh) {
   let refreshTimer = null;
+  let clicked = false; // 防護 flag：點擊後不再重整或輪詢
+
   // 大佬優化：使用 requestAnimationFrame 替代 setInterval，達到 0 毫秒延遲的極限輪詢
   function check() {
+    if (clicked) return; // 已經點擊過了，不再輪詢
+
     const buyButtons = document.querySelectorAll('.btn-primary, button, a.btn');
     for (const btn of buyButtons) {
       const text = btn.textContent.trim().toLowerCase();
-        // 檢查按鈕是否被禁用 (包含 button 的 disabled 屬性與 a 標籤的 disabled class)
-        const isDisabled = btn.disabled || btn.classList.contains('disabled');
-        // 支援多國語言 (立即購票、立即訂購、訂購、buy、order)
-        const isBuyButton = /立即購票|立即訂購|訂購|buy|order/.test(text);
-        
-        if (isBuyButton && !isDisabled) {
-        
+      // 檢查按鈕是否被禁用 (包含 button 的 disabled 屬性與 a 標籤的 disabled class)
+      const isDisabled = btn.disabled || btn.classList.contains('disabled');
+      // 支援多國語言 (立即購票、立即訂購、訂購、buy、order)
+      const isBuyButton = /立即購票|立即訂購|訂購|buy|order/.test(text);
+
+      if (isBuyButton && !isDisabled) {
+
         // 如果有設定場次關鍵字，檢查按鈕所在的列或父容器是否包含該關鍵字
         if (dateKeyword) {
           const dateKeywords = dateKeyword.split(/\s+/).filter(k => k);
@@ -97,15 +101,20 @@ function autoClickBuyTicket(dateKeyword, autoRefresh) {
         }
 
         console.log("🔥 [大佬模式] 找到購票按鈕，光速點擊！", text);
-        if (refreshTimer) clearTimeout(refreshTimer);
+        clicked = true; // 設定防護 flag，防止計時器觸發重整
+        if (refreshTimer) {
+          clearTimeout(refreshTimer);
+          refreshTimer = null;
+        }
         btn.click();
         return; // 點擊後結束輪詢
       }
     }
-    
+
     // 如果找不到有效按鈕，且開啟自動重整功能，則設定一個 800ms 後重整的計時器
-    if (autoRefresh && !refreshTimer) {
+    if (autoRefresh && !refreshTimer && !clicked) {
       refreshTimer = setTimeout(() => {
+        if (clicked) return; // 二次防護：計時器觸發時再確認一次
         console.log("🚀 [大佬模式] 尚未開賣或無按鈕，自動重新整理...");
         location.reload();
       }, 800);
@@ -123,8 +132,8 @@ function autoSelectArea(keyword, ticketCount) {
   const desired = parseInt(ticketCount, 10) || 1;
 
   function hasEnoughTickets(fullText) {
-    // 支援中英文的剩餘張數檢查
-    let match = fullText.match(/剩餘\s*(\d+)\s*張|remaining\s*(\d+)/i);
+    // 支援中英文的剩餘張數檢查，涵蓋「剩餘10張」「剩餘 10 張」「剩餘：10 張」等格式
+    let match = fullText.match(/剩餘[：:]?\s*(\d+)\s*張|remaining[:\s]*(\d+)/i);
     if (match) {
       let remaining = parseInt(match[1] || match[2], 10);
       return remaining >= desired;
@@ -156,16 +165,17 @@ function autoSelectArea(keyword, ticketCount) {
     }
 
     if (keyword) {
+      const keywords = keyword.split(/\s+/).filter(k => k);
+      let foundKeywordButInsufficient = false;
+
       for (const link of validAreaLinks) {
         // 檢查連結本身，或它的父層元素（例如整個 li 或 div）是否包含關鍵字
         // 解決「剩餘幾張」時，關鍵字與連結被拆分到不同標籤的問題
-        // 支援多組關鍵字（用空白分隔），且轉小寫比對
-        const keywords = keyword.split(/\s+/).filter(k => k);
         let parent = link;
         let foundKeyword = false;
         let depth = 0;
         let textForCheck = '';
-        
+
         while (parent && depth < 3) {
           textForCheck = parent.textContent.toLowerCase();
           // 必須包含「所有」關鍵字才算符合
@@ -183,20 +193,35 @@ function autoSelectArea(keyword, ticketCount) {
             link.click();
             return;
           } else {
+            foundKeywordButInsufficient = true;
             console.log("⚠️ [大佬模式] 找到關鍵字區域，但張數不足，跳過：", link.textContent);
           }
         }
       }
-      console.log("找不到關鍵字「" + keyword + "」且張數足夠的區域，已停止自動選擇，請手動點擊。");
-      // 找不到就不再輪詢，交給人類
+
+      // 優化：如果找到了關鍵字區域但張數不足，在 3 秒內持續重試（票可能隨時被釋放）
+      if (foundKeywordButInsufficient) {
+        if (!autoSelectArea._retryStart) {
+          autoSelectArea._retryStart = Date.now();
+        }
+        if (Date.now() - autoSelectArea._retryStart < 3000) {
+          console.log("⏳ [大佬模式] 關鍵字區域張數不足，持續重試中...");
+          requestAnimationFrame(check);
+          return;
+        }
+        console.log("⏱️ [大佬模式] 重試超過 3 秒仍然不足，停止自動選擇，請手動操作。");
+      } else {
+        console.log("找不到關鍵字「" + keyword + "」的區域，已停止自動選擇，請手動點擊。");
+      }
     } else {
       // 沒有填關鍵字：從上往下找「張數足夠」的第一個區域
       for (const link of validAreaLinks) {
+        // 統一使用覆蓋式 (=) 取得最外層父節點的文字，避免累加導致誤判
         let parent = link;
         let depth = 0;
         let textForCheck = '';
         while (parent && depth < 3) {
-          textForCheck += parent.textContent.toLowerCase() + ' ';
+          textForCheck = parent.textContent.toLowerCase();
           parent = parent.parentElement;
           depth++;
         }
@@ -207,7 +232,7 @@ function autoSelectArea(keyword, ticketCount) {
           return;
         }
       }
-      
+
       // 如果全部都張數不夠，為了避免完全買不到，還是將就盲狙第一個可用區域 (且已經排除已售完)
       console.log("🔥 [大佬模式] 所有可用區域的張數都不夠，將就盲狙第一個還有票的區域！");
       validAreaLinks[0].click();
@@ -273,7 +298,7 @@ function autoFillTicketForm(ticketCount) {
     if (captchaInput) {
       if (document.activeElement !== captchaInput) {
         // 大佬優化：將驗證碼滾動到畫面正中央，並強制 Focus
-        captchaInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        captchaInput.scrollIntoView({ behavior: 'instant', block: 'center' });
         captchaInput.focus();
         console.log("🎯 [大佬模式] 驗證碼框已鎖定，就等您的神手速！");
       }
