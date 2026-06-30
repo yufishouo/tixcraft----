@@ -1,5 +1,5 @@
 /**
- * content.js — 拓元搶票輔助 v1.1
+ * content.js — 拓元搶票輔助 v1.2
  *
  * 功能：
  * - 自動點擊購票按鈕（含多組場次關鍵字備選）
@@ -17,6 +17,8 @@
   // ==================== 全域常數 ====================
   const MAX_WAIT_MS = 30000; // 每階段最大等待 30 秒
   const RETRY_KEYWORD_MS = 3000; // 關鍵字張數不足重試時間
+  const POLL_MS = 50; // 輪詢間隔。改用 setTimeout 而非 requestAnimationFrame，
+                      // 因為 rAF 在背景分頁會被完全暫停，導致多開分頁時搶票邏輯停擺。
 
   // ==================== 全域狀態 ====================
   const logs = [];
@@ -90,7 +92,7 @@
         const ticketCount = config.ticketCount || '2';
         const path = window.location.pathname;
 
-        log('⚡ 拓元搶票輔助 v1.1 啟動！ → ' + path);
+        log('⚡ 拓元搶票輔助 v1.2 啟動！ → ' + path);
 
         // ---- 路由判斷 ----
         if (path.includes('/activity/detail/') || path.includes('/activity/game/')) {
@@ -108,7 +110,7 @@
           log('📍 偵測到：張數/驗證碼頁面');
           // 有些特殊活動（或無劃位活動），「區域選擇」會和「張數選擇」合併在同一個頁面
           // 同時啟動選區和填表，確保不管在哪種版面都能一步到位
-          autoSelectArea(keyword, ticketCount);
+          autoSelectArea(keyword, ticketCount, true);
           autoFillTicketForm(ticketCount);
         }
         else {
@@ -170,20 +172,30 @@
           if (dateKeywordGroups.length > 0) {
             let matchedAnyGroup = false;
 
+            // 優先以「單一場次列」(<li>/<tr>) 為比對範圍，避免透過共用的 table/ul
+            // 容器把隔壁場次的日期也一起讀進來，導致點到錯誤場次的購票鈕。
+            const row = btn.closest('li, tr');
+
             for (const groupStr of dateKeywordGroups) {
               const keywords = groupStr.split(/\s+/).filter(k => k);
-              let parent = btn.parentElement;
               let found = false;
-              let depth = 0;
 
-              while (parent && depth < 5) {
-                const parentText = parent.textContent.toLowerCase().replace(/,/g, '');
-                if (keywords.every(k => parentText.includes(k.replace(/,/g, '')))) {
-                  found = true;
-                  break;
+              if (row) {
+                const rowText = row.textContent.toLowerCase().replace(/,/g, '');
+                found = keywords.every(k => rowText.includes(k.replace(/,/g, '')));
+              } else {
+                // 找不到列容器時，才退回有限度（3 層）的向上查找
+                let parent = btn.parentElement;
+                let depth = 0;
+                while (parent && depth < 3) {
+                  const parentText = parent.textContent.toLowerCase().replace(/,/g, '');
+                  if (keywords.every(k => parentText.includes(k.replace(/,/g, '')))) {
+                    found = true;
+                    break;
+                  }
+                  parent = parent.parentElement;
+                  depth++;
                 }
-                parent = parent.parentElement;
-                depth++;
               }
 
               if (found) {
@@ -222,20 +234,24 @@
         }, interval);
       }
 
-      requestAnimationFrame(check);
+      setTimeout(check, POLL_MS);
     }
 
-    requestAnimationFrame(check);
+    setTimeout(check, POLL_MS);
   }
 
   // ====================================================================
   //  2. 自動選擇區域
   //     支援：多組票價關鍵字備選、張數不足重試、超時保護
   // ====================================================================
-  function autoSelectArea(keywordRaw, ticketCount) {
+  function autoSelectArea(keywordRaw, ticketCount, isFormPage) {
     const desired = parseInt(ticketCount, 10) || 1;
     const startTime = Date.now();
     let retryStart = null;
+
+    // 在填表頁，本函式僅為輔助（處理選區/填表合併的版面）；
+    // 狀態以表單填寫流程為準，這裡不覆蓋 timeout，避免蓋掉「等待驗證碼」等狀態。
+    const setStatus = (s) => { if (!isFormPage) currentStatus = s; };
 
     // #2 多組票價關鍵字備選（逗號分隔）
     const keywordGroups = keywordRaw
@@ -283,18 +299,22 @@
     function check() {
       // #6 超時保護
       if (Date.now() - startTime > MAX_WAIT_MS) {
-        currentStatus = 'timeout';
+        setStatus('timeout');
         log('⏱️ 區域搜尋超過 30 秒，停止輪詢。請手動操作。');
         return;
       }
 
-      // 擴大選取範圍以支援各種版面
-      const allLinks = document.querySelectorAll(
-        '.zone-area a, .area-list a, a[href*="/ticket/ticket/"], ul.area-list > li > a, .select_form_a a, .select_form_b a'
-      );
+      // 擴大選取範圍以支援各種版面。
+      // 注意：填表頁(/ticket/ticket/)不使用寬鬆的 href 比對，否則會誤點麵包屑/返回等
+      // 連結而把使用者導離正在填寫的表單。
+      const areaSelectors = isFormPage
+        ? '.zone-area a, .area-list a, ul.area-list > li > a, .select_form_a a, .select_form_b a'
+        : '.zone-area a, .area-list a, a[href*="/ticket/ticket/"], ul.area-list > li > a, .select_form_a a, .select_form_b a';
+      const allLinks = document.querySelectorAll(areaSelectors);
 
-      // 第一層過濾：排除「已售完」的區域
+      // 第一層過濾：排除「已售完」的區域，以及指向目前頁面本身的連結
       const validAreaLinks = Array.from(allLinks).filter(link => {
+        if (!link.href || link.href === window.location.href) return false; // 避免點到自己把頁面導走
         const container = getAreaContainer(link);
         const text = container.textContent.toLowerCase();
         if (text.includes('已售完') || text.includes('售罄') || text.includes('sold out')) {
@@ -304,13 +324,14 @@
       });
 
       if (validAreaLinks.length === 0) {
-        requestAnimationFrame(check); // 網頁還沒載入完畢
+        setTimeout(check, POLL_MS); // 網頁還沒載入完畢
         return;
       }
 
       // ---- 有設定關鍵字：按優先順序嘗試 ----
       if (keywordGroups.length > 0) {
         let anyKeywordFoundButInsufficient = false;
+        let anyKeywordMatched = false;
 
         for (const groupStr of keywordGroups) {
           const keywords = groupStr.split(/\s+/).filter(k => k);
@@ -319,16 +340,17 @@
             const container = getAreaContainer(link);
             const textForCheck = container.textContent.toLowerCase();
             const normalizedText = textForCheck.replace(/,/g, '');
-            
+
             let foundKeyword = false;
             if (keywords.every(k => normalizedText.includes(k.replace(/,/g, '')))) {
               foundKeyword = true;
             }
 
             if (foundKeyword) {
+              anyKeywordMatched = true;
               if (hasEnoughTickets(textForCheck)) {
                 log('🔥 命中關鍵字「' + groupStr + '」且張數足夠，點擊！');
-                currentStatus = 'done';
+                setStatus('done');
                 link.click();
                 return;
               } else {
@@ -339,19 +361,21 @@
           }
         }
 
-        // 所有關鍵字組都找不到足夠票數 → 重試機制
-        if (anyKeywordFoundButInsufficient) {
+        // 關鍵字命中但張數不足，或目標區域可能尚未渲染出來 → 在重試窗口內持續等待，
+        // 不要在第一個輪詢就放棄（頁面常常是分批載入的）。
+        if (anyKeywordFoundButInsufficient || !anyKeywordMatched) {
           if (!retryStart) retryStart = Date.now();
           if (Date.now() - retryStart < RETRY_KEYWORD_MS) {
-            log('⏳ 關鍵字區域張數不足，持續重試中...');
-            requestAnimationFrame(check);
+            log(anyKeywordFoundButInsufficient
+              ? '⏳ 關鍵字區域張數不足，持續重試中...'
+              : '⏳ 尚未出現符合關鍵字的區域，持續重試中...');
+            setTimeout(check, POLL_MS);
             return;
           }
-          log('⏱️ 重試超過 3 秒，所有關鍵字組都不符合。停止自動選擇。');
-          currentStatus = 'timeout';
-        } else {
-          log('❌ 找不到任何關鍵字的區域，停止自動選擇。請手動操作。');
-          currentStatus = 'timeout';
+          log(anyKeywordFoundButInsufficient
+            ? '⏱️ 重試超過 3 秒，所有關鍵字組張數都不足，停止自動選擇。'
+            : '❌ 重試超過 3 秒，找不到任何關鍵字的區域，停止自動選擇。請手動操作。');
+          setStatus('timeout');
         }
 
       // ---- 沒有關鍵字：盲狙第一個可用區域 ----
@@ -362,7 +386,7 @@
 
           if (hasEnoughTickets(textForCheck)) {
             log('🔥 未設定關鍵字，盲狙第一個張數足夠的可用區域！');
-            currentStatus = 'done';
+            setStatus('done');
             link.click();
             return;
           }
@@ -370,13 +394,13 @@
 
         // 全部張數不夠 → 將就盲狙
         log('🔥 所有區域張數都不夠，將就盲狙第一個還有票的區域！');
-        currentStatus = 'done';
+        setStatus('done');
         validAreaLinks[0].click();
         return;
       }
     }
 
-    requestAnimationFrame(check);
+    setTimeout(check, POLL_MS);
   }
 
   // ====================================================================
@@ -385,6 +409,7 @@
   // ====================================================================
   function autoFillTicketForm(ticketCount) {
     let formFilled = false;
+    let captchaEverFocused = false;
     const startTime = Date.now();
 
     function check() {
@@ -437,12 +462,19 @@
       }
 
       // ---- 3. 聚焦驗證碼輸入框 ----
+      // 只在「還沒成功聚焦過」時主動搶焦點：避免每次輪詢都把使用者正在打字的焦點搶走，
+      // 也避免使用者點別處後 isCaptchaOk 永遠為 false、表單完成狀態卡住。
       const captchaInput = document.getElementById('TicketForm_verifyCode');
       if (captchaInput) {
-        if (document.activeElement !== captchaInput) {
-          captchaInput.scrollIntoView({ behavior: 'instant', block: 'center' });
-          captchaInput.focus();
-          log('🎯 驗證碼框已鎖定');
+        if (!captchaEverFocused) {
+          if (document.activeElement !== captchaInput) {
+            captchaInput.scrollIntoView({ behavior: 'instant', block: 'center' });
+            captchaInput.focus();
+          }
+          if (document.activeElement === captchaInput) {
+            captchaEverFocused = true;
+            log('🎯 驗證碼框已鎖定');
+          }
         }
 
         // #1 自動提交：監聽 Enter 鍵（只綁一次）
@@ -482,7 +514,7 @@
       // ---- 完成度檢查 ----
       const isSelectOk = targetSelect ? (targetSelect.value !== '0' && targetSelect.value !== '') : true;
       const isAgreeOk = agreeCheckbox ? agreeCheckbox.checked : true;
-      const isCaptchaOk = captchaInput ? (document.activeElement === captchaInput) : true;
+      const isCaptchaOk = captchaInput ? captchaEverFocused : true;
 
       if (isSelectOk && isAgreeOk && isCaptchaOk) {
         formFilled = true;
@@ -491,11 +523,11 @@
       }
 
       if (!formFilled) {
-        requestAnimationFrame(check);
+        setTimeout(check, POLL_MS);
       }
     }
 
-    requestAnimationFrame(check);
+    setTimeout(check, POLL_MS);
   }
 
 })();
