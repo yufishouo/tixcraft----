@@ -1,32 +1,43 @@
 <!DOCTYPE html>
-<html>
+<html lang="zh-TW">
 <head>
   <meta charset="UTF-8">
-  <title>拓元搶票輔助</title>
+  <title>拓元搶票輔助 v1.1</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <div class="container">
+
+    <!-- ===== 即時狀態列 ===== -->
+    <div id="statusBar" class="status-bar">
+      <span id="statusDot" class="status-dot"></span>
+      <span id="statusText">檢查中...</span>
+    </div>
+
     <h2>拓元搶票輔助</h2>
-    
+
+    <!-- ===== 啟用開關 ===== -->
     <div class="form-group">
       <label for="enabled" class="checkbox-label">
         <input type="checkbox" id="enabled"> 啟用輔助功能
       </label>
     </div>
 
+    <!-- ===== 場次關鍵字 ===== -->
     <div class="form-group">
       <label for="dateKeyword">場次/日期關鍵字 (選填):</label>
-      <input type="text" id="dateKeyword" placeholder="例如: 12/31 或 台北場">
-      <small>留空則自動點擊第一個可購票的場次</small>
+      <input type="text" id="dateKeyword" placeholder="例如: 12/31, 1/1 (逗號分隔多組)">
+      <small>留空自動點第一個場次，逗號分隔可設多個備選</small>
     </div>
 
+    <!-- ===== 票價關鍵字 ===== -->
     <div class="form-group">
       <label for="keyword">目標票價/區域關鍵字:</label>
-      <input type="text" id="keyword" placeholder="例如: 5800 或 特區">
-      <small>留空則自動點擊第一個可用區域</small>
+      <input type="text" id="keyword" placeholder="例如: 5800, 4800, 3800">
+      <small>依序嘗試，第一志願搶不到自動切換下一個</small>
     </div>
 
+    <!-- ===== 購買張數 ===== -->
     <div class="form-group">
       <label for="ticketCount">購買張數:</label>
       <select id="ticketCount">
@@ -38,20 +49,68 @@
     </div>
 
     <hr class="divider">
-    
+
+    <!-- ===== 倒數計時器 ===== -->
+    <div class="form-group">
+      <label for="saleTime">⏰ 開賣時間 (選填):</label>
+      <input type="datetime-local" id="saleTime">
+      <div id="countdown" class="countdown"></div>
+    </div>
+
+    <!-- ===== 進階選項 ===== -->
     <div class="form-group">
       <label for="disableAnimation" class="checkbox-label" title="將移除所有網頁淡入淡出動畫，以最快速度顯示內容">
         <input type="checkbox" id="disableAnimation"> 🚀 移除網頁過場動畫
       </label>
     </div>
+
     <div class="form-group">
-      <label for="autoRefresh" class="checkbox-label" title="在尚未開賣時，每秒自動重新整理頁面直到按鈕出現">
-        <input type="checkbox" id="autoRefresh"> 🚀 開賣前自動重整
+      <label for="autoRefresh" class="checkbox-label" title="在尚未開賣時自動重新整理頁面">
+        <input type="checkbox" id="autoRefresh"> 🔄 開賣前自動重整
       </label>
+      <!-- 重整間隔（勾選自動重整後顯示） -->
+      <div id="refreshIntervalGroup" class="sub-option" style="display:none;">
+        <label for="refreshInterval">重整間隔:</label>
+        <select id="refreshInterval">
+          <option value="500">500ms ⚡極速</option>
+          <option value="800" selected>800ms 🔥推薦</option>
+          <option value="1200">1200ms 🛡️穩定</option>
+          <option value="2000">2000ms 🔒安全</option>
+        </select>
+        <small>系統會自動加入 ±150ms 隨機抖動</small>
+      </div>
     </div>
 
+    <!-- ===== 多分頁提示 ===== -->
+    <div class="tip">💡 可同時開多個分頁提高成功率</div>
+
+    <!-- ===== 儲存按鈕 ===== -->
     <button id="saveBtn">儲存設定</button>
     <div id="status"></div>
+
+    <hr class="divider">
+
+    <!-- ===== 匯出/匯入 ===== -->
+    <div class="button-row">
+      <button id="exportBtn" class="btn-small" title="將設定匯出為 JSON 檔案">📤 匯出設定</button>
+      <button id="importBtn" class="btn-small" title="從 JSON 檔案匯入設定">📥 匯入設定</button>
+      <input type="file" id="importFile" accept=".json" style="display:none;">
+    </div>
+
+    <!-- ===== 操作日誌 ===== -->
+    <div class="log-section">
+      <div class="log-header" id="logToggle">
+        <span>📋 操作日誌</span>
+        <span id="logArrow">▼</span>
+      </div>
+      <div id="logPanel" class="log-panel">
+        <div id="logContent" class="log-content">等待連線...</div>
+      </div>
+    </div>
+
+    <!-- ===== 版本號 ===== -->
+    <div class="version">v1.1</div>
+
   </div>
   <script src="popup.js"></script>
 </body>

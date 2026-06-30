@@ -1,15 +1,22 @@
 {
   "manifest_version": 3,
   "name": "拓元搶票輔助",
-  "version": "1.0",
+  "version": "1.1",
   "description": "輔助拓元售票系統快速選擇與填寫表單。",
   "permissions": [
-    "storage"
+    "storage",
+    "tabs"
   ],
   "action": {
     "default_popup": "popup.html"
   },
   "content_scripts": [
+    {
+      "matches": ["*://tixcraft.com/*", "*://*.tixcraft.com/*"],
+      "js": ["anti_alert.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
     {
       "matches": ["*://tixcraft.com/*", "*://*.tixcraft.com/*"],
       "js": ["content.js"],

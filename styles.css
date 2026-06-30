@@ -1,8 +1,10 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
 
+/* ==================== 基礎佈局 ==================== */
+
 body {
   font-family: 'Inter', 'Segoe UI', Tahoma, sans-serif;
-  width: 340px;
+  width: 360px;
   margin: 0;
   padding: 0;
   background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
@@ -11,13 +13,66 @@ body {
 }
 
 .container {
-  padding: 20px;
+  padding: 16px 20px 12px;
 }
 
+/* ==================== 狀態列 ==================== */
+
+.status-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: #64748b;
+  transition: background 0.3s;
+}
+
+.status-dot.active {
+  background: #4ade80;
+  box-shadow: 0 0 8px rgba(74, 222, 128, 0.6);
+  animation: pulse 2s infinite;
+}
+
+.status-dot.warning {
+  background: #fbbf24;
+  box-shadow: 0 0 8px rgba(251, 191, 36, 0.5);
+  animation: pulse 2s infinite;
+}
+
+.status-dot.inactive {
+  background: #64748b;
+}
+
+.status-dot.error {
+  background: #f87171;
+  box-shadow: 0 0 8px rgba(248, 113, 113, 0.6);
+  animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* ==================== 標題 ==================== */
+
 h2 {
-  font-size: 18px;
+  font-size: 17px;
   margin-top: 0;
-  margin-bottom: 20px;
+  margin-bottom: 16px;
   color: #38bdf8;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   padding-bottom: 10px;
@@ -31,10 +86,12 @@ h2::before {
   content: '⚡';
 }
 
+/* ==================== 表單群組 ==================== */
+
 .form-group {
-  margin-bottom: 16px;
+  margin-bottom: 14px;
   background: rgba(255, 255, 255, 0.03);
-  padding: 12px;
+  padding: 10px 12px;
   border-radius: 8px;
   border: 1px solid rgba(255, 255, 255, 0.05);
   transition: all 0.2s ease;
@@ -42,14 +99,16 @@ h2::before {
 
 .form-group:hover {
   background: rgba(255, 255, 255, 0.05);
-  border-color: rgba(56, 189, 248, 0.3);
+  border-color: rgba(56, 189, 248, 0.25);
 }
+
+/* ==================== Label ==================== */
 
 label {
   display: block;
   font-size: 13px;
   font-weight: 500;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
   color: #cbd5e1;
 }
 
@@ -62,7 +121,8 @@ label {
   color: #f1f5f9;
 }
 
-/* Custom Checkbox */
+/* ==================== Custom Checkbox ==================== */
+
 .checkbox-label input[type="checkbox"] {
   appearance: none;
   background-color: #1e293b;
@@ -76,6 +136,7 @@ label {
   display: grid;
   place-content: center;
   transition: all 0.2s;
+  flex-shrink: 0;
 }
 
 .checkbox-label input[type="checkbox"]::before {
@@ -98,22 +159,32 @@ label {
   transform: scale(1);
 }
 
-input[type="text"], select {
+/* ==================== Input & Select ==================== */
+
+input[type="text"],
+input[type="datetime-local"],
+select {
   width: 100%;
-  padding: 10px 12px;
+  padding: 9px 12px;
   background: rgba(15, 23, 42, 0.6);
   border: 1px solid #334155;
   color: #f8fafc;
   border-radius: 6px;
   box-sizing: border-box;
-  font-size: 14px;
+  font-size: 13px;
   transition: all 0.2s ease;
 }
 
-input[type="text"]:focus, select:focus {
+input[type="text"]:focus,
+input[type="datetime-local"]:focus,
+select:focus {
   outline: none;
   border-color: #38bdf8;
   box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+}
+
+input[type="datetime-local"] {
+  color-scheme: dark;
 }
 
 select {
@@ -130,26 +201,46 @@ select option {
   color: #f8fafc;
 }
 
+/* ==================== 輔助文字 ==================== */
+
 small {
   display: block;
   color: #94a3b8;
-  margin-top: 6px;
+  margin-top: 5px;
   font-size: 11px;
+  line-height: 1.4;
 }
+
+/* ==================== 子選項（重整間隔） ==================== */
+
+.sub-option {
+  margin-top: 10px;
+  padding: 10px;
+  background: rgba(15, 23, 42, 0.4);
+  border-radius: 6px;
+  border-left: 2px solid rgba(56, 189, 248, 0.3);
+}
+
+.sub-option label {
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+
+/* ==================== 按鈕 ==================== */
 
 button {
   width: 100%;
-  padding: 12px;
+  padding: 11px;
   background: linear-gradient(to right, #0284c7, #38bdf8);
   color: white;
   border: none;
   border-radius: 6px;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.3s ease;
   box-shadow: 0 4px 12px rgba(2, 132, 199, 0.3);
-  margin-top: 5px;
+  margin-top: 4px;
 }
 
 button:hover {
@@ -162,8 +253,38 @@ button:active {
   transform: translateY(1px);
 }
 
+/* ==================== 小按鈕（匯出/匯入） ==================== */
+
+.button-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.btn-small {
+  flex: 1;
+  padding: 8px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  background: rgba(255, 255, 255, 0.06);
+  color: #cbd5e1;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: none;
+  margin-top: 0;
+}
+
+.btn-small:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #f8fafc;
+  box-shadow: none;
+  transform: translateY(-1px);
+  border-color: rgba(56, 189, 248, 0.3);
+}
+
+/* ==================== 狀態通知 ==================== */
+
 #status {
-  margin-top: 12px;
+  margin-top: 10px;
   font-size: 13px;
   color: #4ade80;
   text-align: center;
@@ -177,8 +298,136 @@ button:active {
   opacity: 1;
 }
 
+/* ==================== 分隔線 ==================== */
+
 .divider {
-  margin: 15px 0;
+  margin: 12px 0;
   border: 0;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* ==================== 提示文字 ==================== */
+
+.tip {
+  font-size: 11px;
+  color: #94a3b8;
+  text-align: center;
+  padding: 6px 0;
+  margin-bottom: 4px;
+}
+
+/* ==================== 倒數計時器 ==================== */
+
+.countdown {
+  margin-top: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #38bdf8;
+  text-align: center;
+  min-height: 18px;
+}
+
+.countdown.sale-live {
+  color: #f87171;
+  animation: blink 0.8s infinite;
+}
+
+.countdown-urgent {
+  color: #fbbf24 !important;
+  animation: blink 1s infinite;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* ==================== 日誌面板 ==================== */
+
+.log-section {
+  margin-top: 12px;
+}
+
+.log-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  color: #94a3b8;
+  transition: all 0.2s;
+  user-select: none;
+}
+
+.log-header:hover {
+  background: rgba(255, 255, 255, 0.07);
+  color: #cbd5e1;
+}
+
+.log-panel {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.3s ease;
+  border-radius: 0 0 6px 6px;
+}
+
+.log-panel.open {
+  max-height: 200px;
+}
+
+.log-content {
+  padding: 8px 10px;
+  background: rgba(0, 0, 0, 0.3);
+  font-family: 'Consolas', 'SF Mono', 'Monaco', monospace;
+  font-size: 11px;
+  line-height: 1.6;
+  color: #94a3b8;
+  max-height: 180px;
+  overflow-y: auto;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-top: none;
+  border-radius: 0 0 6px 6px;
+}
+
+.log-entry {
+  padding: 1px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.log-entry:last-child {
+  border-bottom: none;
+}
+
+.log-time {
+  color: #64748b;
+  margin-right: 6px;
+}
+
+/* 自訂捲軸 */
+.log-content::-webkit-scrollbar {
+  width: 4px;
+}
+
+.log-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.log-content::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.3);
+  border-radius: 2px;
+}
+
+/* ==================== 版本號 ==================== */
+
+.version {
+  text-align: center;
+  font-size: 10px;
+  color: #475569;
+  margin-top: 10px;
+  padding-bottom: 2px;
+  letter-spacing: 0.5px;
 }

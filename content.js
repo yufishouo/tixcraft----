@@ -1,321 +1,491 @@
-chrome.storage.local.get([
-  'enabled', 'dateKeyword', 'keyword', 'ticketCount',
-  'disableAnimation', 'autoRefresh'
-], (config) => {
-  if (config.enabled === false) return; // 如果沒有啟用，直接結束
-
-  const disableAnimation = config.disableAnimation !== false; // 預設開啟
-  const autoRefresh = config.autoRefresh === true;
-
-  if (disableAnimation) {
-    const style = document.createElement('style');
-    style.textContent = `
-      * {
-        transition: none !important;
-        animation: none !important;
-      }
-    `;
-    (document.head || document.documentElement).appendChild(style);
-    console.log("🚀 [大佬模式] 已拔除所有網頁過場動畫");
-  }
-
-  /**
-   * 大佬級優化：注入 Script 到主頁面以攔截惱人的 window.alert 和 window.confirm
-   * 避免系統跳出「請勿重新整理」之類的彈出視窗卡死搶票流程。
-   * (將此功能移入 enabled 判斷內，尊重使用者的開關設定)
-   */
-  function injectAntiAlert() {
-    const script = document.createElement('script');
-    script.textContent = `
-      window.alert = function(msg) { console.log('已攔截 Alert:', msg); };
-      window.confirm = function(msg) { console.log('已攔截 Confirm:', msg); return true; };
-    `;
-    (document.head || document.documentElement).appendChild(script);
-    script.remove();
-  }
-  injectAntiAlert();
-
-  const dateKeyword = config.dateKeyword ? config.dateKeyword.trim().toLowerCase() : '';
-  const keyword = config.keyword ? config.keyword.trim().toLowerCase() : '';
-  const ticketCount = config.ticketCount || '2';
-
-  const path = window.location.pathname;
-
-  console.log("拓元搶票輔助 啟動中...", path);
-
-  // 1. 活動詳情頁面 or 場次列表頁面
-  if (path.includes('/activity/detail/') || path.includes('/activity/game/')) {
-    autoClickBuyTicket(dateKeyword, autoRefresh);
-  } 
-  // 2. 區域選擇頁面
-  else if (path.includes('/ticket/area/')) {
-    autoSelectArea(keyword, ticketCount);
-  }
-  // 3. 張數與驗證碼頁面
-  else if (path.includes('/ticket/ticket/')) {
-    autoFillTicketForm(ticketCount);
-  }
-});
-
 /**
- * 1. 極速檢查「立即購票」或「立即訂購」按鈕是否存在且可點擊
+ * content.js — 拓元搶票輔助 v1.1
+ *
+ * 功能：
+ * - 自動點擊購票按鈕（含多組場次關鍵字備選）
+ * - 自動選擇區域（含多組票價關鍵字備選）
+ * - 自動填寫表單（張數、同意條款、驗證碼聚焦）
+ * - 驗證碼 Enter 自動提交
+ * - 驗證碼圖片放大
+ * - 全域錯誤捕捉 & 超時保護
+ * - 日誌系統 + Popup 狀態通訊
  */
-function autoClickBuyTicket(dateKeyword, autoRefresh) {
-  let refreshTimer = null;
-  let clicked = false; // 防護 flag：點擊後不再重整或輪詢
 
-  // 大佬優化：使用 requestAnimationFrame 替代 setInterval，達到 0 毫秒延遲的極限輪詢
-  function check() {
-    if (clicked) return; // 已經點擊過了，不再輪詢
+(function () {
+  'use strict';
 
-    const buyButtons = document.querySelectorAll('.btn-primary, button, a.btn');
-    for (const btn of buyButtons) {
-      const text = btn.textContent.trim().toLowerCase();
-      // 檢查按鈕是否被禁用 (包含 button 的 disabled 屬性與 a 標籤的 disabled class)
-      const isDisabled = btn.disabled || btn.classList.contains('disabled');
-      // 支援多國語言 (立即購票、立即訂購、訂購、buy、order)
-      const isBuyButton = /立即購票|立即訂購|訂購|buy|order/.test(text);
+  // ==================== 全域常數 ====================
+  const MAX_WAIT_MS = 30000; // 每階段最大等待 30 秒
+  const RETRY_KEYWORD_MS = 3000; // 關鍵字張數不足重試時間
 
-      if (isBuyButton && !isDisabled) {
+  // ==================== 全域狀態 ====================
+  const logs = [];
+  let currentStatus = 'initializing'; // initializing | active | waiting | waiting_captcha | done | disabled | timeout | error
+  let currentPhase = '';              // buyTicket | selectArea | fillForm | idle
 
-        // 如果有設定場次關鍵字，檢查按鈕所在的列或父容器是否包含該關鍵字
-        if (dateKeyword) {
-          const dateKeywords = dateKeyword.split(/\s+/).filter(k => k);
-          let parent = btn.parentElement;
-          let foundKeyword = false;
+  // ==================== 日誌系統 ====================
+  function log(message) {
+    const entry = {
+      time: new Date().toLocaleTimeString('zh-TW', { hour12: false }),
+      message
+    };
+    logs.push(entry);
+    if (logs.length > 100) logs.shift(); // 保留最近 100 條
+    console.log(message);
+
+    // 嘗試即時推送給 popup（popup 未開啟時會靜默失敗）
+    try {
+      chrome.runtime.sendMessage({ type: 'NEW_LOG', entry }).catch(() => {});
+    } catch (e) { /* ignored */ }
+  }
+
+  // ==================== 訊息監聽器（供 Popup 查詢狀態）====================
+  chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    if (msg.type === 'GET_STATUS') {
+      sendResponse({
+        status: currentStatus,
+        phase: currentPhase,
+        url: window.location.href,
+        logs: logs.slice(-50) // 回傳最近 50 條
+      });
+      return true; // 保持 sendResponse channel 開啟
+    }
+  });
+
+  // ==================== 主程式入口 ====================
+  try {
+    chrome.storage.local.get([
+      'enabled', 'dateKeyword', 'keyword', 'ticketCount',
+      'disableAnimation', 'autoRefresh', 'refreshInterval', 'saleTime'
+    ], (config) => {
+      try {
+        // 未啟用 → 直接結束
+        if (config.enabled === false) {
+          currentStatus = 'disabled';
+          log('⏸️ 輔助功能已關閉');
+          return;
+        }
+
+        currentStatus = 'active';
+        const disableAnimation = config.disableAnimation !== false; // 預設開啟
+        const autoRefresh = config.autoRefresh === true;            // 預設關閉
+        const refreshInterval = parseInt(config.refreshInterval) || 800;
+
+        // ---- 移除網頁動畫 ----
+        if (disableAnimation) {
+          const style = document.createElement('style');
+          style.textContent = `
+            *, *::before, *::after {
+              transition: none !important;
+              animation: none !important;
+            }
+          `;
+          (document.head || document.documentElement).appendChild(style);
+          log('🚀 已拔除所有網頁過場動畫');
+        }
+
+        // ---- 解析設定 ----
+        const dateKeyword = config.dateKeyword ? config.dateKeyword.trim().toLowerCase() : '';
+        const keyword = config.keyword ? config.keyword.trim().toLowerCase() : '';
+        const ticketCount = config.ticketCount || '2';
+        const path = window.location.pathname;
+
+        log('⚡ 拓元搶票輔助 v1.1 啟動！ → ' + path);
+
+        // ---- 路由判斷 ----
+        if (path.includes('/activity/detail/') || path.includes('/activity/game/')) {
+          currentPhase = 'buyTicket';
+          log('📍 偵測到：活動/場次頁面');
+          autoClickBuyTicket(dateKeyword, autoRefresh, refreshInterval);
+        }
+        else if (path.includes('/ticket/area/')) {
+          currentPhase = 'selectArea';
+          log('📍 偵測到：區域選擇頁面');
+          autoSelectArea(keyword, ticketCount);
+        }
+        else if (path.includes('/ticket/ticket/')) {
+          currentPhase = 'fillForm';
+          log('📍 偵測到：張數/驗證碼頁面');
+          autoFillTicketForm(ticketCount);
+        }
+        else {
+          currentPhase = 'idle';
+          currentStatus = 'waiting';
+          log('📍 目前頁面不需要自動操作，待命中');
+        }
+
+      } catch (error) {
+        currentStatus = 'error';
+        log('🚨 執行階段錯誤: ' + error.message);
+        console.error(error);
+      }
+    });
+  } catch (error) {
+    currentStatus = 'error';
+    log('🚨 初始化錯誤: ' + error.message);
+    console.error(error);
+  }
+
+  // ====================================================================
+  //  1. 自動點擊購票按鈕
+  //     支援：多組場次關鍵字備選、智慧重整間隔、超時保護
+  // ====================================================================
+  function autoClickBuyTicket(dateKeywordRaw, autoRefresh, refreshInterval) {
+    let refreshTimer = null;
+    let clicked = false;
+    const startTime = Date.now();
+
+    // #4 多組場次關鍵字備選（逗號 or 中文逗號分隔）
+    const dateKeywordGroups = dateKeywordRaw
+      ? dateKeywordRaw.split(/[,，]/).map(g => g.trim()).filter(g => g)
+      : [];
+
+    if (dateKeywordGroups.length > 0) {
+      log('🎯 場次關鍵字：' + dateKeywordGroups.map((g, i) => `[${i + 1}] ${g}`).join(' → '));
+    }
+
+    function check() {
+      if (clicked) return;
+
+      // #6 超時保護
+      if (Date.now() - startTime > MAX_WAIT_MS) {
+        currentStatus = 'timeout';
+        log('⏱️ 購票按鈕搜尋超過 30 秒，停止輪詢。請手動操作。');
+        return;
+      }
+
+      const buyButtons = document.querySelectorAll('.btn-primary, button, a.btn');
+
+      for (const btn of buyButtons) {
+        const text = btn.textContent.trim().toLowerCase();
+        const isDisabled = btn.disabled || btn.classList.contains('disabled');
+        const isBuyButton = /立即購票|立即訂購|訂購|buy|order/.test(text);
+
+        if (isBuyButton && !isDisabled) {
+
+          // ---- 場次關鍵字篩選 ----
+          if (dateKeywordGroups.length > 0) {
+            let matchedAnyGroup = false;
+
+            for (const groupStr of dateKeywordGroups) {
+              const keywords = groupStr.split(/\s+/).filter(k => k);
+              let parent = btn.parentElement;
+              let found = false;
+              let depth = 0;
+
+              while (parent && depth < 5) {
+                const parentText = parent.textContent.toLowerCase();
+                if (keywords.every(k => parentText.includes(k))) {
+                  found = true;
+                  break;
+                }
+                parent = parent.parentElement;
+                depth++;
+              }
+
+              if (found) {
+                matchedAnyGroup = true;
+                log('✅ 命中場次關鍵字：「' + groupStr + '」');
+                break;
+              }
+            }
+
+            if (!matchedAnyGroup) {
+              continue; // 不符合任何場次關鍵字，找下一個按鈕
+            }
+          }
+
+          // ---- 點擊按鈕 ----
+          log('🔥 找到購票按鈕，光速點擊！ → ' + text);
+          clicked = true;
+          currentStatus = 'done';
+          if (refreshTimer) {
+            clearTimeout(refreshTimer);
+            refreshTimer = null;
+          }
+          btn.click();
+          return;
+        }
+      }
+
+      // ---- #3 智慧重整（含隨機抖動 ±150ms）----
+      if (autoRefresh && !refreshTimer && !clicked) {
+        const jitter = Math.floor(Math.random() * 300) - 150;
+        const interval = Math.max(300, refreshInterval + jitter);
+        refreshTimer = setTimeout(() => {
+          if (clicked) return;
+          log('🔄 自動重整中... (間隔 ' + interval + 'ms)');
+          location.reload();
+        }, interval);
+      }
+
+      requestAnimationFrame(check);
+    }
+
+    requestAnimationFrame(check);
+  }
+
+  // ====================================================================
+  //  2. 自動選擇區域
+  //     支援：多組票價關鍵字備選、張數不足重試、超時保護
+  // ====================================================================
+  function autoSelectArea(keywordRaw, ticketCount) {
+    const desired = parseInt(ticketCount, 10) || 1;
+    const startTime = Date.now();
+    let retryStart = null;
+
+    // #2 多組票價關鍵字備選（逗號分隔）
+    const keywordGroups = keywordRaw
+      ? keywordRaw.split(/[,，]/).map(g => g.trim()).filter(g => g)
+      : [];
+
+    if (keywordGroups.length > 0) {
+      log('🎯 票價關鍵字：' + keywordGroups.map((g, i) => `[${i + 1}] ${g}`).join(' → '));
+    }
+
+    // 剩餘票數檢查（增強版正則，支援中文冒號）
+    function hasEnoughTickets(fullText) {
+      const match = fullText.match(/剩餘[：:]?\s*(\d+)\s*張|remaining[:\s]*(\d+)/i);
+      if (match) {
+        const remaining = parseInt(match[1] || match[2], 10);
+        return remaining >= desired;
+      }
+      return true; // 沒寫剩餘幾張，當作數量足夠
+    }
+
+    function check() {
+      // #6 超時保護
+      if (Date.now() - startTime > MAX_WAIT_MS) {
+        currentStatus = 'timeout';
+        log('⏱️ 區域搜尋超過 30 秒，停止輪詢。請手動操作。');
+        return;
+      }
+
+      // 取得所有區域連結
+      const allLinks = document.querySelectorAll(
+        '.zone-area a, .area-list a, a[href*="/ticket/ticket/"]'
+      );
+
+      // 第一層過濾：排除「已售完」的區域
+      const validAreaLinks = Array.from(allLinks).filter(link => {
+        let parent = link;
+        let depth = 0;
+        while (parent && depth < 3) {
+          const text = parent.textContent.toLowerCase();
+          if (text.includes('已售完') || text.includes('售罄') || text.includes('sold out')) {
+            return false;
+          }
+          parent = parent.parentElement;
+          depth++;
+        }
+        return true;
+      });
+
+      if (validAreaLinks.length === 0) {
+        requestAnimationFrame(check); // 網頁還沒載入完畢
+        return;
+      }
+
+      // ---- 有設定關鍵字：按優先順序嘗試 ----
+      if (keywordGroups.length > 0) {
+        let anyKeywordFoundButInsufficient = false;
+
+        for (const groupStr of keywordGroups) {
+          const keywords = groupStr.split(/\s+/).filter(k => k);
+
+          for (const link of validAreaLinks) {
+            let parent = link;
+            let foundKeyword = false;
+            let depth = 0;
+            let textForCheck = '';
+
+            while (parent && depth < 3) {
+              textForCheck = parent.textContent.toLowerCase();
+              if (keywords.every(k => textForCheck.includes(k))) {
+                foundKeyword = true;
+                break;
+              }
+              parent = parent.parentElement;
+              depth++;
+            }
+
+            if (foundKeyword) {
+              if (hasEnoughTickets(textForCheck)) {
+                log('🔥 命中關鍵字「' + groupStr + '」且張數足夠，點擊！');
+                currentStatus = 'done';
+                link.click();
+                return;
+              } else {
+                anyKeywordFoundButInsufficient = true;
+                log('⚠️ 關鍵字「' + groupStr + '」區域張數不足，嘗試下一組');
+              }
+            }
+          }
+        }
+
+        // 所有關鍵字組都找不到足夠票數 → 重試機制
+        if (anyKeywordFoundButInsufficient) {
+          if (!retryStart) retryStart = Date.now();
+          if (Date.now() - retryStart < RETRY_KEYWORD_MS) {
+            log('⏳ 關鍵字區域張數不足，持續重試中...');
+            requestAnimationFrame(check);
+            return;
+          }
+          log('⏱️ 重試超過 3 秒，所有關鍵字組都不符合。停止自動選擇。');
+          currentStatus = 'timeout';
+        } else {
+          log('❌ 找不到任何關鍵字的區域，停止自動選擇。請手動操作。');
+          currentStatus = 'timeout';
+        }
+
+      // ---- 沒有關鍵字：盲狙第一個可用區域 ----
+      } else {
+        for (const link of validAreaLinks) {
+          let parent = link;
           let depth = 0;
           let textForCheck = '';
-          // 往上找最多 5 層父節點 (通常 table 的 tr 是第 2 或第 3 層)
-          while (parent && depth < 5) {
+          while (parent && depth < 3) {
             textForCheck = parent.textContent.toLowerCase();
-            if (dateKeywords.every(k => textForCheck.includes(k))) {
-              foundKeyword = true;
-              break;
-            }
             parent = parent.parentElement;
             depth++;
           }
-          if (!foundKeyword) {
-            continue; // 這顆按鈕不符合場次，繼續找下一個
-          }
-        }
 
-        console.log("🔥 [大佬模式] 找到購票按鈕，光速點擊！", text);
-        clicked = true; // 設定防護 flag，防止計時器觸發重整
-        if (refreshTimer) {
-          clearTimeout(refreshTimer);
-          refreshTimer = null;
-        }
-        btn.click();
-        return; // 點擊後結束輪詢
-      }
-    }
-
-    // 如果找不到有效按鈕，且開啟自動重整功能，則設定一個 800ms 後重整的計時器
-    if (autoRefresh && !refreshTimer && !clicked) {
-      refreshTimer = setTimeout(() => {
-        if (clicked) return; // 二次防護：計時器觸發時再確認一次
-        console.log("🚀 [大佬模式] 尚未開賣或無按鈕，自動重新整理...");
-        location.reload();
-      }, 800);
-    }
-
-    requestAnimationFrame(check); // 沒找到就等下一幀繼續找
-  }
-  requestAnimationFrame(check);
-}
-
-/**
- * 2. 根據設定的關鍵字極速尋找區域並點擊
- */
-function autoSelectArea(keyword, ticketCount) {
-  const desired = parseInt(ticketCount, 10) || 1;
-
-  function hasEnoughTickets(fullText) {
-    // 支援中英文的剩餘張數檢查，涵蓋「剩餘10張」「剩餘 10 張」「剩餘：10 張」等格式
-    let match = fullText.match(/剩餘[：:]?\s*(\d+)\s*張|remaining[:\s]*(\d+)/i);
-    if (match) {
-      let remaining = parseInt(match[1] || match[2], 10);
-      return remaining >= desired;
-    }
-    return true; // 沒寫剩餘幾張 (例如熱賣中)，當作數量足夠
-  }
-
-  function check() {
-    // 擴大選取範圍：有些時候「剩餘幾張」的 DOM 結構會改變，所以多加幾個選擇器
-    const allLinks = document.querySelectorAll('.zone-area a, .area-list a, a[href*="/ticket/ticket/"]');
-    
-    // 大佬優化：第一層防護網，直接過濾掉「明確寫著已售完」的區域
-    const validAreaLinks = Array.from(allLinks).filter(link => {
-      let parent = link;
-      let depth = 0;
-      let text = '';
-      while (parent && depth < 3) {
-        text += parent.textContent.toLowerCase() + ' ';
-        parent = parent.parentElement;
-        depth++;
-      }
-      return !text.includes("已售完") && !text.includes("售罄") && !text.includes("sold out");
-    });
-
-    if (validAreaLinks.length === 0) {
-      // 網頁還沒載入完畢，或是真的全部賣光了，繼續等
-      requestAnimationFrame(check); 
-      return;
-    }
-
-    if (keyword) {
-      const keywords = keyword.split(/\s+/).filter(k => k);
-      let foundKeywordButInsufficient = false;
-
-      for (const link of validAreaLinks) {
-        // 檢查連結本身，或它的父層元素（例如整個 li 或 div）是否包含關鍵字
-        // 解決「剩餘幾張」時，關鍵字與連結被拆分到不同標籤的問題
-        let parent = link;
-        let foundKeyword = false;
-        let depth = 0;
-        let textForCheck = '';
-
-        while (parent && depth < 3) {
-          textForCheck = parent.textContent.toLowerCase();
-          // 必須包含「所有」關鍵字才算符合
-          if (keywords.every(k => textForCheck.includes(k))) {
-            foundKeyword = true;
-            break;
-          }
-          parent = parent.parentElement;
-          depth++;
-        }
-
-        if (foundKeyword) {
           if (hasEnoughTickets(textForCheck)) {
-            console.log("🔥 [大佬模式] 找到符合關鍵字且張數足夠的區域：", link.textContent);
+            log('🔥 未設定關鍵字，盲狙第一個張數足夠的可用區域！');
+            currentStatus = 'done';
             link.click();
             return;
-          } else {
-            foundKeywordButInsufficient = true;
-            console.log("⚠️ [大佬模式] 找到關鍵字區域，但張數不足，跳過：", link.textContent);
           }
         }
-      }
 
-      // 優化：如果找到了關鍵字區域但張數不足，在 3 秒內持續重試（票可能隨時被釋放）
-      if (foundKeywordButInsufficient) {
-        if (!autoSelectArea._retryStart) {
-          autoSelectArea._retryStart = Date.now();
-        }
-        if (Date.now() - autoSelectArea._retryStart < 3000) {
-          console.log("⏳ [大佬模式] 關鍵字區域張數不足，持續重試中...");
-          requestAnimationFrame(check);
-          return;
-        }
-        console.log("⏱️ [大佬模式] 重試超過 3 秒仍然不足，停止自動選擇，請手動操作。");
-      } else {
-        console.log("找不到關鍵字「" + keyword + "」的區域，已停止自動選擇，請手動點擊。");
+        // 全部張數不夠 → 將就盲狙
+        log('🔥 所有區域張數都不夠，將就盲狙第一個還有票的區域！');
+        currentStatus = 'done';
+        validAreaLinks[0].click();
+        return;
       }
-    } else {
-      // 沒有填關鍵字：從上往下找「張數足夠」的第一個區域
-      for (const link of validAreaLinks) {
-        // 統一使用覆蓋式 (=) 取得最外層父節點的文字，避免累加導致誤判
-        let parent = link;
-        let depth = 0;
-        let textForCheck = '';
-        while (parent && depth < 3) {
-          textForCheck = parent.textContent.toLowerCase();
-          parent = parent.parentElement;
-          depth++;
-        }
-
-        if (hasEnoughTickets(textForCheck)) {
-          console.log("🔥 [大佬模式] 未設定關鍵字，盲狙第一個張數足夠的可用區域！");
-          link.click();
-          return;
-        }
-      }
-
-      // 如果全部都張數不夠，為了避免完全買不到，還是將就盲狙第一個可用區域 (且已經排除已售完)
-      console.log("🔥 [大佬模式] 所有可用區域的張數都不夠，將就盲狙第一個還有票的區域！");
-      validAreaLinks[0].click();
-      return;
     }
+
+    requestAnimationFrame(check);
   }
-  requestAnimationFrame(check);
-}
 
-/**
- * 3. 閃電填寫購票表單
- */
-function autoFillTicketForm(ticketCount) {
-  let formFilled = false;
-  
-  function check() {
-    if (formFilled) return;
+  // ====================================================================
+  //  3. 自動填寫購票表單
+  //     支援：自動選張數、勾同意、聚焦驗證碼、Enter 自動提交、驗證碼放大
+  // ====================================================================
+  function autoFillTicketForm(ticketCount) {
+    let formFilled = false;
+    const startTime = Date.now();
 
-    // 1. 自動選擇張數
-    const selects = document.querySelectorAll('select');
-    let targetSelect = null;
-    
-    for (const s of selects) {
-      if (s.id.includes('TicketForm') || s.classList.contains('mobile-select')) {
-        targetSelect = s;
-        break;
+    function check() {
+      if (formFilled) return;
+
+      // #6 超時保護
+      if (Date.now() - startTime > MAX_WAIT_MS) {
+        currentStatus = 'timeout';
+        log('⏱️ 表單填寫超過 30 秒，停止輪詢。');
+        return;
       }
-    }
 
-    if (targetSelect && targetSelect.value === "0") {
-      let targetValue = ticketCount;
-      let optionExists = Array.from(targetSelect.options).some(opt => opt.value === targetValue);
-      
-      if (!optionExists) {
-        let maxAvailable = 0;
-        for (const opt of targetSelect.options) {
-          if (opt.value !== "0" && opt.value !== "") {
-            maxAvailable = Math.max(maxAvailable, parseInt(opt.value, 10));
+      // ---- 1. 自動選擇張數 ----
+      const selects = document.querySelectorAll('select');
+      let targetSelect = null;
+      for (const s of selects) {
+        if (s.id.includes('TicketForm') || s.classList.contains('mobile-select')) {
+          targetSelect = s;
+          break;
+        }
+      }
+
+      if (targetSelect && targetSelect.value === '0') {
+        let targetValue = ticketCount;
+        const optionExists = Array.from(targetSelect.options).some(opt => opt.value === targetValue);
+
+        if (!optionExists) {
+          let maxAvailable = 0;
+          for (const opt of targetSelect.options) {
+            if (opt.value !== '0' && opt.value !== '') {
+              maxAvailable = Math.max(maxAvailable, parseInt(opt.value, 10));
+            }
           }
+          targetValue = maxAvailable.toString();
         }
-        targetValue = maxAvailable.toString();
+
+        if (targetValue !== '0' && targetValue !== 'NaN') {
+          targetSelect.value = targetValue;
+          targetSelect.dispatchEvent(new Event('input', { bubbles: true }));
+          targetSelect.dispatchEvent(new Event('change', { bubbles: true }));
+          log('🔥 鎖定張數：' + targetValue);
+        }
       }
-      
-      if (targetValue !== "0" && targetValue !== "NaN") {
-        targetSelect.value = targetValue;
-        // 大佬優化：同時觸發 input 和 change 事件，確保前端框架有吃到狀態
-        targetSelect.dispatchEvent(new Event('input', { bubbles: true }));
-        targetSelect.dispatchEvent(new Event('change', { bubbles: true }));
-        console.log(`🔥 [大佬模式] 鎖定張數：${targetValue}`);
+
+      // ---- 2. 自動勾選同意條款 ----
+      const agreeCheckbox = document.getElementById('TicketForm_agree');
+      if (agreeCheckbox && !agreeCheckbox.checked) {
+        agreeCheckbox.click();
+        log('🔥 已勾選同意條款');
+      }
+
+      // ---- 3. 聚焦驗證碼輸入框 ----
+      const captchaInput = document.getElementById('TicketForm_verifyCode');
+      if (captchaInput) {
+        if (document.activeElement !== captchaInput) {
+          captchaInput.scrollIntoView({ behavior: 'instant', block: 'center' });
+          captchaInput.focus();
+          log('🎯 驗證碼框已鎖定');
+        }
+
+        // #1 自動提交：監聽 Enter 鍵（只綁一次）
+        if (!captchaInput._autoSubmitBound) {
+          captchaInput._autoSubmitBound = true;
+          captchaInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              const submitBtn = document.querySelector(
+                'button[type="submit"], input[type="submit"], .btn-primary, #submitButton, button.btn'
+              );
+              if (submitBtn && !submitBtn.disabled) {
+                submitBtn.click();
+                log('🚀 驗證碼已輸入，自動提交表單！');
+                currentStatus = 'done';
+              }
+            }
+          });
+          log('⌨️ 已綁定 Enter 鍵自動提交');
+        }
+      }
+
+      // ---- #15 驗證碼圖片放大 ----
+      const captchaImg = document.querySelector(
+        '#TicketForm_verifyCode-image, .captcha-img, img[src*="captcha"], img[src*="verify"]'
+      );
+      if (captchaImg && !captchaImg._enlarged) {
+        captchaImg._enlarged = true;
+        captchaImg.style.transform = 'scale(1.5)';
+        captchaImg.style.transformOrigin = 'left center';
+        captchaImg.style.imageRendering = 'crisp-edges';
+        captchaImg.style.position = 'relative';
+        captchaImg.style.zIndex = '100';
+        log('🔍 驗證碼圖片已放大 1.5 倍');
+      }
+
+      // ---- 完成度檢查 ----
+      const isSelectOk = targetSelect ? (targetSelect.value !== '0' && targetSelect.value !== '') : true;
+      const isAgreeOk = agreeCheckbox ? agreeCheckbox.checked : true;
+      const isCaptchaOk = captchaInput ? (document.activeElement === captchaInput) : true;
+
+      if (isSelectOk && isAgreeOk && isCaptchaOk) {
+        formFilled = true;
+        currentStatus = 'waiting_captcha';
+        log('✅ 表單已自動填好！請輸入驗證碼後按 Enter 即可送出');
+      }
+
+      if (!formFilled) {
+        requestAnimationFrame(check);
       }
     }
 
-    // 2. 自動勾選「我同意」條款
-    const agreeCheckbox = document.getElementById('TicketForm_agree');
-    if (agreeCheckbox && !agreeCheckbox.checked) {
-      // 大佬優化：用 click() 模擬真實點擊，比直接改 .checked 更安全，不容易被擋
-      agreeCheckbox.click();
-      console.log("🔥 [大佬模式] 已勾選同意條款。");
-    }
-
-    // 3. 自動將滑鼠游標鎖定在「驗證碼輸入框」並滾動到畫面中央
-    const captchaInput = document.getElementById('TicketForm_verifyCode');
-    if (captchaInput) {
-      if (document.activeElement !== captchaInput) {
-        // 大佬優化：將驗證碼滾動到畫面正中央，並強制 Focus
-        captchaInput.scrollIntoView({ behavior: 'instant', block: 'center' });
-        captchaInput.focus();
-        console.log("🎯 [大佬模式] 驗證碼框已鎖定，就等您的神手速！");
-      }
-    }
-    
-    // 大佬優化：防呆機制，避免因為網頁缺少下拉選單或同意核取方塊而陷入死迴圈
-    const isSelectOk = targetSelect ? (targetSelect.value !== "0" && targetSelect.value !== "") : true;
-    const isAgreeOk = agreeCheckbox ? agreeCheckbox.checked : true;
-    const isCaptchaOk = captchaInput ? (document.activeElement === captchaInput) : true;
-    
-    if (isSelectOk && isAgreeOk && isCaptchaOk) {
-      formFilled = true; // 狀態都對了才停止輪詢
-    }
-    
-    if (!formFilled) {
-      requestAnimationFrame(check); // 繼續輪詢
-    }
+    requestAnimationFrame(check);
   }
-  requestAnimationFrame(check);
-}
+
+})();
