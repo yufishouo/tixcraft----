@@ -21,6 +21,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const logPanel = document.getElementById('logPanel');
   const logContent = document.getElementById('logContent');
   const logArrow = document.getElementById('logArrow');
+  const helpToggle = document.getElementById('helpToggle');
+  const helpPanel = document.getElementById('helpPanel');
+  const helpArrow = document.getElementById('helpArrow');
+  const statusHint = document.getElementById('statusHint');
 
   // ==================== 載入設定 ====================
   const STORAGE_KEYS = [
@@ -67,8 +71,24 @@ document.addEventListener('DOMContentLoaded', () => {
       saleTime: saleTimeInput.value
     };
 
+    // ---- 設定驗證：儲存前檢查常見的填寫問題，給使用者回饋 ----
+    const warnings = [];
+    if (settings.saleTime) {
+      const t = new Date(settings.saleTime).getTime();
+      if (!isNaN(t) && t < Date.now()) {
+        warnings.push('開賣時間已是過去時間');
+      }
+    }
+    if (settings.enabled && !settings.keyword && !settings.dateKeyword) {
+      warnings.push('未填關鍵字，將自動選第一個可用場次/區域');
+    }
+
     chrome.storage.local.set(settings, () => {
-      showNotification('✅ 設定已儲存！');
+      if (warnings.length > 0) {
+        showNotification('⚠️ 已儲存（' + warnings.join('；') + '）', 'warn');
+      } else {
+        showNotification('✅ 設定已儲存！');
+      }
     });
   });
 
@@ -117,6 +137,13 @@ document.addEventListener('DOMContentLoaded', () => {
           const info = statusMap[status] || { state: 'warning', text: '狀態: ' + status };
           setStatusIndicator(info.state, info.text + (phaseMap[phase] || ''));
 
+          // #C 失敗/超時時，給使用者明確的下一步引導
+          const hintMap = {
+            timeout: '⏱️ 已超時：可改用手動操作，或調整關鍵字後重新整理頁面再試。',
+            error: '❌ 發生錯誤：請重新整理頁面後再試一次。'
+          };
+          if (hintMap[status]) statusHint.textContent = hintMap[status];
+
           // #9 更新日誌面板
           if (remoteLogs && remoteLogs.length > 0) {
             logContent.innerHTML = remoteLogs.map(l =>
@@ -134,6 +161,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function setStatusIndicator(state, text) {
     statusDot.className = 'status-dot ' + state;
     statusText.textContent = text;
+    statusHint.textContent = ''; // 預設清空引導；需要時由呼叫端在之後補上
   }
 
   // 每秒查詢一次
@@ -210,6 +238,15 @@ document.addEventListener('DOMContentLoaded', () => {
     logArrow.textContent = logOpen ? '▲' : '▼';
   });
 
+  // ==================== 使用說明面板收合 ====================
+  let helpOpen = false;
+
+  helpToggle.addEventListener('click', () => {
+    helpOpen = !helpOpen;
+    helpPanel.classList.toggle('open', helpOpen);
+    helpArrow.textContent = helpOpen ? '▲' : '▼';
+  });
+
   // ==================== #10 設定匯出 ====================
   exportBtn.addEventListener('click', () => {
     chrome.storage.local.get(null, (data) => {
@@ -252,12 +289,14 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // ==================== 工具函式 ====================
-  function showNotification(message) {
+  function showNotification(message, type) {
     statusDiv.textContent = message;
+    statusDiv.classList.toggle('warn', type === 'warn');
     statusDiv.classList.add('show');
+    // 警告訊息較長，留久一點讓使用者讀完
     setTimeout(() => {
       statusDiv.classList.remove('show');
-    }, 2500);
+    }, type === 'warn' ? 4500 : 2500);
   }
 
   function escapeHtml(str) {

@@ -298,6 +298,10 @@ button:active {
   opacity: 1;
 }
 
+#status.warn {
+  color: #fbbf24;
+}
+
 /* ==================== 分隔線 ==================== */
 
 .divider {
@@ -419,6 +423,67 @@ button:active {
 .log-content::-webkit-scrollbar-thumb {
   background: rgba(148, 163, 184, 0.3);
   border-radius: 2px;
+}
+
+/* ==================== 狀態提示（失敗引導） ==================== */
+
+.status-hint {
+  font-size: 11px;
+  color: #fbbf24;
+  margin: -6px 2px 12px;
+  line-height: 1.45;
+}
+
+.status-hint:empty {
+  display: none;
+}
+
+/* ==================== 使用說明 ==================== */
+
+.help-section {
+  margin-top: 0;
+  margin-bottom: 14px;
+}
+
+.help-section .log-panel.open {
+  max-height: 340px;
+}
+
+.help-content {
+  padding: 10px 12px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-top: none;
+  border-radius: 0 0 6px 6px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #cbd5e1;
+}
+
+.help-content ol {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.help-content li {
+  margin-bottom: 6px;
+}
+
+.help-content li:last-child {
+  margin-bottom: 0;
+}
+
+.help-content b {
+  color: #f1f5f9;
+}
+
+.help-content code {
+  background: rgba(56, 189, 248, 0.12);
+  color: #7dd3fc;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-family: 'Consolas', 'SF Mono', monospace;
+  font-size: 11px;
 }
 
 /* ==================== 版本號 ==================== */

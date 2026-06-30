@@ -1,5 +1,5 @@
 /**
- * content.js — 拓元搶票輔助 v1.2
+ * content.js — 拓元搶票輔助 v1.3
  *
  * 功能：
  * - 自動點擊購票按鈕（含多組場次關鍵字備選）
@@ -92,7 +92,7 @@
         const ticketCount = config.ticketCount || '2';
         const path = window.location.pathname;
 
-        log('⚡ 拓元搶票輔助 v1.2 啟動！ → ' + path);
+        log('⚡ 拓元搶票輔助 v1.3 啟動！ → ' + path);
 
         // ---- 路由判斷 ----
         if (path.includes('/activity/detail/') || path.includes('/activity/game/')) {

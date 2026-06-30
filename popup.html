@@ -2,7 +2,7 @@
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8">
-  <title>拓元搶票輔助 v1.2</title>
+  <title>拓元搶票輔助 v1.3</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -13,8 +13,30 @@
       <span id="statusDot" class="status-dot"></span>
       <span id="statusText">檢查中...</span>
     </div>
+    <!-- 失敗/超時時顯示下一步引導，平時為空（CSS 隱藏） -->
+    <div id="statusHint" class="status-hint"></div>
 
     <h2>拓元搶票輔助</h2>
+
+    <!-- ===== 使用說明（第一次使用展開）===== -->
+    <div class="log-section help-section">
+      <div class="log-header" id="helpToggle">
+        <span>📖 使用說明（第一次使用點我）</span>
+        <span id="helpArrow">▼</span>
+      </div>
+      <div id="helpPanel" class="log-panel">
+        <div class="help-content">
+          <ol>
+            <li>在拓元要搶的<b>活動頁</b>打開此擴充，勾選「啟用輔助功能」。</li>
+            <li><b>場次關鍵字</b>：填日期或場次字樣（如 <code>12/31</code>），留空會自動點第一個可購票場次；逗號可設多組備選。</li>
+            <li><b>票價／區域關鍵字</b>：填想要的區域或票價（如 <code>5800, 4800</code>），會依序嘗試，搶不到自動換下一個。</li>
+            <li>選好<b>張數</b>後按「儲存設定」。</li>
+            <li>進入頁面後會自動點購票 → 選區 → 填表；最後<b>由你輸入驗證碼按 Enter</b> 送出。</li>
+            <li>上方狀態列即時顯示進度，可展開下方「操作日誌」看細節。</li>
+          </ol>
+        </div>
+      </div>
+    </div>
 
     <!-- ===== 啟用開關 ===== -->
     <div class="form-group">
@@ -109,7 +131,7 @@
     </div>
 
     <!-- ===== 版本號 ===== -->
-    <div class="version">v1.2</div>
+    <div class="version">v1.3</div>
 
   </div>
   <script src="popup.js"></script>
