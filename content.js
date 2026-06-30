@@ -297,6 +297,28 @@
     }
 
     function check() {
+      // 讀取區域黑名單（已被判定為座位不足或無法購買的區域）
+      let failedAreas = [];
+      try {
+        failedAreas = JSON.parse(sessionStorage.getItem('tix_failed_areas') || '[]');
+        const lastAlert = sessionStorage.getItem('tix_last_alert');
+        const lastAlertTime = parseInt(sessionStorage.getItem('tix_last_alert_time') || '0', 10);
+        const lastClickedArea = sessionStorage.getItem('tix_last_clicked_area');
+
+        // 如果在 30 秒內有被系統警告「失敗」、「連續」、「不足」等，就把剛才點擊的區域加入黑名單
+        if (lastAlert && lastClickedArea && (Date.now() - lastAlertTime < 30000)) {
+          if (lastAlert.includes('連續') || lastAlert.includes('失敗') || lastAlert.includes('不足') || lastAlert.includes('售完') || lastAlert.includes('售罄')) {
+            if (!failedAreas.includes(lastClickedArea)) {
+              failedAreas.push(lastClickedArea);
+              sessionStorage.setItem('tix_failed_areas', JSON.stringify(failedAreas));
+              log(`🚫 系統提示「${lastAlert}」，已將該區域暫時排除！`);
+            }
+          }
+          // 處理完畢，清除 alert 紀錄
+          sessionStorage.removeItem('tix_last_alert');
+        }
+      } catch (e) {}
+
       // #6 超時保護
       if (Date.now() - startTime > MAX_WAIT_MS) {
         setStatus('timeout');
@@ -304,20 +326,31 @@
         return;
       }
 
-      // 擴大選取範圍以支援各種版面。
-      // 注意：填表頁(/ticket/ticket/)不使用寬鬆的 href 比對，否則會誤點麵包屑/返回等
-      // 連結而把使用者導離正在填寫的表單。
+      // 擴大選取範圍以支援各種版面 (包含 button)
+      // 注意：填表頁(/ticket/ticket/)不使用寬鬆的比對，否則會誤點麵包屑/返回等連結
       const areaSelectors = isFormPage
-        ? '.zone-area a, .area-list a, ul.area-list > li > a, .select_form_a a, .select_form_b a'
-        : '.zone-area a, .area-list a, a[href*="/ticket/ticket/"], ul.area-list > li > a, .select_form_a a, .select_form_b a';
+        ? '.zone-area a, .zone-area button, .area-list a, .area-list button, ul.area-list > li > a, ul.area-list > li > button, .select_form_a a, .select_form_b a, .select_form_a button, .select_form_b button'
+        : '.zone-area a, .zone-area button, .area-list a, .area-list button, a[href*="/ticket/ticket/"], button[onclick*="/ticket/ticket/"], ul.area-list > li > a, ul.area-list > li > button, .select_form_a a, .select_form_b a, .select_form_a button, .select_form_b button';
+      
       const allLinks = document.querySelectorAll(areaSelectors);
 
-      // 第一層過濾：排除「已售完」的區域，以及指向目前頁面本身的連結
+      // 第一層過濾：排除「已售完」的區域、disabled、以及指向目前頁面本身的連結
       const validAreaLinks = Array.from(allLinks).filter(link => {
-        if (!link.href || link.href === window.location.href) return false; // 避免點到自己把頁面導走
+        // 如果是 a 標籤，才檢查 href 是否指向自己，避免點到麵包屑 (若是 button 或沒有 href 則放行)
+        if (link.tagName === 'A' && link.href && link.href === window.location.href) return false;
+        
+        // 排除明顯被禁用的按鈕
+        if (link.disabled || link.classList.contains('disabled')) return false;
+
         const container = getAreaContainer(link);
         const text = container.textContent.toLowerCase();
-        if (text.includes('已售完') || text.includes('售罄') || text.includes('sold out')) {
+        
+        // 檢查是否已被加入黑名單
+        if (failedAreas.includes(text)) {
+          return false; // 跳過這個區域，因為剛剛系統說不能買
+        }
+
+        if (text.includes('已售完') || text.includes('售罄') || text.includes('sold out') || text.includes('暫無票券')) {
           return false;
         }
         return true;
@@ -351,6 +384,7 @@
               if (hasEnoughTickets(textForCheck)) {
                 log('🔥 命中關鍵字「' + groupStr + '」且張數足夠，點擊！');
                 setStatus('done');
+                try { sessionStorage.setItem('tix_last_clicked_area', textForCheck); } catch(e){}
                 link.click();
                 return;
               } else {
@@ -387,6 +421,7 @@
           if (hasEnoughTickets(textForCheck)) {
             log('🔥 未設定關鍵字，盲狙第一個張數足夠的可用區域！');
             setStatus('done');
+            try { sessionStorage.setItem('tix_last_clicked_area', textForCheck); } catch(e){}
             link.click();
             return;
           }
@@ -395,6 +430,10 @@
         // 全部張數不夠 → 將就盲狙
         log('🔥 所有區域張數都不夠，將就盲狙第一個還有票的區域！');
         setStatus('done');
+        try { 
+          const firstContainer = getAreaContainer(validAreaLinks[0]);
+          sessionStorage.setItem('tix_last_clicked_area', firstContainer.textContent.toLowerCase()); 
+        } catch(e){}
         validAreaLinks[0].click();
         return;
       }
@@ -477,16 +516,37 @@
           }
         }
 
+        // 確保「回上一頁」按鈕不會被原生的 Enter 鍵觸發
+        const backBtns = document.querySelectorAll('button, .btn, input[type="button"], input[type="submit"]');
+        for (const btn of backBtns) {
+          const text = btn.value || btn.textContent;
+          if (text && (text.toLowerCase().includes('上一') || text.toLowerCase().includes('前頁') || text.toLowerCase().includes('重新') || text.toLowerCase().includes('back'))) {
+            if (btn.getAttribute('type') !== 'button') {
+              btn.setAttribute('type', 'button');
+            }
+          }
+        }
+
         // #1 自動提交：監聽 Enter 鍵（只綁一次）
         if (!captchaInput._autoSubmitBound) {
           captchaInput._autoSubmitBound = true;
           captchaInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') {
               e.preventDefault();
-              const submitBtn = document.querySelector(
+              e.stopPropagation();
+              const btns = document.querySelectorAll(
                 'button[type="submit"], input[type="submit"], .btn-primary, #submitButton, button.btn'
               );
-              if (submitBtn && !submitBtn.disabled) {
+              let submitBtn = null;
+              for (const btn of btns) {
+                const text = btn.textContent.toLowerCase() || btn.value.toLowerCase();
+                // 排除「回上一頁」、「重新選擇」等按鈕，避免按 Enter 後跳回前一頁
+                if (!text.includes('上一') && !text.includes('前頁') && !text.includes('重新') && !text.includes('back') && !btn.disabled) {
+                  submitBtn = btn;
+                  break;
+                }
+              }
+              if (submitBtn) {
                 submitBtn.click();
                 log('🚀 驗證碼已輸入，自動提交表單！');
                 currentStatus = 'done';
@@ -503,12 +563,13 @@
       );
       if (captchaImg && !captchaImg._enlarged) {
         captchaImg._enlarged = true;
-        captchaImg.style.transform = 'scale(1.5)';
-        captchaImg.style.transformOrigin = 'left center';
+        // 使用 width/height 放大而非 transform，避免破壞排版而蓋住旁邊的輸入框
+        captchaImg.style.height = '60px'; 
+        captchaImg.style.width = 'auto';
         captchaImg.style.imageRendering = 'crisp-edges';
-        captchaImg.style.position = 'relative';
-        captchaImg.style.zIndex = '100';
-        log('🔍 驗證碼圖片已放大 1.5 倍');
+        captchaImg.style.verticalAlign = 'middle';
+        captchaImg.style.marginLeft = '10px';
+        log('🔍 驗證碼圖片已放大');
       }
 
       // ---- 完成度檢查 ----

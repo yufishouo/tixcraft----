@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "拓元搶票輔助",
-  "version": "1.3",
-  "description": "輔助拓元售票系統快速選擇與填寫表單。",
+  "version": "1.4",
+  "description": "專為 Tixcraft 打造的搶票輔助擴充功能，支援多組關鍵字自動選區、防彈窗卡死、自動提交驗證碼。",
   "permissions": [
     "storage",
     "tabs"

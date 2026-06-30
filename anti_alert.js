@@ -17,11 +17,24 @@
 
   window.alert = function (msg) {
     console.log('[搶票輔助] 已攔截 Alert:', msg);
-    // 不顯示任何彈窗
+    // 將錯誤訊息存入 sessionStorage，讓 content.js 知道發生了什麼事（例如「座位不連續」）
+    if (msg && typeof msg === 'string') {
+      try {
+        sessionStorage.setItem('tix_last_alert', msg);
+        sessionStorage.setItem('tix_last_alert_time', Date.now().toString());
+      } catch (e) {}
+    }
   };
 
   window.confirm = function (msg) {
     console.log('[搶票輔助] 已攔截 Confirm:', msg);
+    // 同樣記錄下來
+    if (msg && typeof msg === 'string') {
+      try {
+        sessionStorage.setItem('tix_last_alert', msg);
+        sessionStorage.setItem('tix_last_alert_time', Date.now().toString());
+      } catch (e) {}
+    }
     return true; // 永遠回傳 true（同意）
   };
 })();
