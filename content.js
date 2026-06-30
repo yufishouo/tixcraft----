@@ -174,8 +174,8 @@
               let depth = 0;
 
               while (parent && depth < 5) {
-                const parentText = parent.textContent.toLowerCase();
-                if (keywords.every(k => parentText.includes(k))) {
+                const parentText = parent.textContent.toLowerCase().replace(/,/g, '');
+                if (keywords.every(k => parentText.includes(k.replace(/,/g, '')))) {
                   found = true;
                   break;
                 }
@@ -301,7 +301,8 @@
 
             while (parent && depth < 3) {
               textForCheck = parent.textContent.toLowerCase();
-              if (keywords.every(k => textForCheck.includes(k))) {
+              const normalizedText = textForCheck.replace(/,/g, '');
+              if (keywords.every(k => normalizedText.includes(k.replace(/,/g, '')))) {
                 foundKeyword = true;
                 break;
               }
