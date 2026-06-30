@@ -92,7 +92,7 @@
         const ticketCount = config.ticketCount || '2';
         const path = window.location.pathname;
 
-        log('⚡ 拓元搶票輔助 v1.3 啟動！ → ' + path);
+        log('⚡ 拓元搶票輔助 v1.4 啟動！ → ' + path);
 
         // ---- 路由判斷 ----
         if (path.includes('/activity/detail/') || path.includes('/activity/game/')) {
@@ -539,7 +539,7 @@
               );
               let submitBtn = null;
               for (const btn of btns) {
-                const text = btn.textContent.toLowerCase() || btn.value.toLowerCase();
+                const text = (btn.textContent || btn.value || '').toLowerCase();
                 // 排除「回上一頁」、「重新選擇」等按鈕，避免按 Enter 後跳回前一頁
                 if (!text.includes('上一') && !text.includes('前頁') && !text.includes('重新') && !text.includes('back') && !btn.disabled) {
                   submitBtn = btn;
