@@ -106,6 +106,9 @@
         else if (path.includes('/ticket/ticket/')) {
           currentPhase = 'fillForm';
           log('📍 偵測到：張數/驗證碼頁面');
+          // 有些特殊活動（或無劃位活動），「區域選擇」會和「張數選擇」合併在同一個頁面
+          // 同時啟動選區和填表，確保不管在哪種版面都能一步到位
+          autoSelectArea(keyword, ticketCount);
           autoFillTicketForm(ticketCount);
         }
         else {
@@ -243,9 +246,33 @@
       log('🎯 票價關鍵字：' + keywordGroups.map((g, i) => `[${i + 1}] ${g}`).join(' → '));
     }
 
-    // 剩餘票數檢查（增強版正則，支援中文冒號）
+    // 取得單一區域的容器元素，極度精準防護，絕對不往上找到 <ul> 或整個區塊的 div
+    function getAreaContainer(link) {
+      // 優先找最常見的單一項目容器 <li> 或 <tr>
+      const liOrTr = link.closest('li, tr');
+      if (liOrTr) return liOrTr;
+
+      // 退一步：只往上找一層
+      const parent = link.parentElement;
+      if (parent) {
+        // 如果父節點是列表容器，絕對不能用，否則會把其他區域的「已售完」讀進來
+        const badTags = ['UL', 'OL', 'TBODY', 'TABLE'];
+        if (badTags.includes(parent.tagName)) return link;
+        
+        // 如果父節點的 class 包含 list 等字眼，且不是 item，也不要用
+        if (parent.className && typeof parent.className === 'string') {
+          if ((parent.className.includes('list') || parent.className.includes('zone-area')) && !parent.className.includes('item')) {
+            return link;
+          }
+        }
+        return parent;
+      }
+      return link;
+    }
+
+    // 剩餘票數檢查（增強版正則，支援「剩餘 24」無「張」字的情況）
     function hasEnoughTickets(fullText) {
-      const match = fullText.match(/剩餘[：:]?\s*(\d+)\s*張|remaining[:\s]*(\d+)/i);
+      const match = fullText.match(/剩餘[：:]?\s*(\d+)\s*張?|remaining[:\s]*(\d+)/i);
       if (match) {
         const remaining = parseInt(match[1] || match[2], 10);
         return remaining >= desired;
@@ -261,22 +288,17 @@
         return;
       }
 
-      // 取得所有區域連結
+      // 擴大選取範圍以支援各種版面
       const allLinks = document.querySelectorAll(
-        '.zone-area a, .area-list a, a[href*="/ticket/ticket/"]'
+        '.zone-area a, .area-list a, a[href*="/ticket/ticket/"], ul.area-list > li > a, .select_form_a a, .select_form_b a'
       );
 
       // 第一層過濾：排除「已售完」的區域
       const validAreaLinks = Array.from(allLinks).filter(link => {
-        let parent = link;
-        let depth = 0;
-        while (parent && depth < 3) {
-          const text = parent.textContent.toLowerCase();
-          if (text.includes('已售完') || text.includes('售罄') || text.includes('sold out')) {
-            return false;
-          }
-          parent = parent.parentElement;
-          depth++;
+        const container = getAreaContainer(link);
+        const text = container.textContent.toLowerCase();
+        if (text.includes('已售完') || text.includes('售罄') || text.includes('sold out')) {
+          return false;
         }
         return true;
       });
@@ -294,20 +316,13 @@
           const keywords = groupStr.split(/\s+/).filter(k => k);
 
           for (const link of validAreaLinks) {
-            let parent = link;
+            const container = getAreaContainer(link);
+            const textForCheck = container.textContent.toLowerCase();
+            const normalizedText = textForCheck.replace(/,/g, '');
+            
             let foundKeyword = false;
-            let depth = 0;
-            let textForCheck = '';
-
-            while (parent && depth < 3) {
-              textForCheck = parent.textContent.toLowerCase();
-              const normalizedText = textForCheck.replace(/,/g, '');
-              if (keywords.every(k => normalizedText.includes(k.replace(/,/g, '')))) {
-                foundKeyword = true;
-                break;
-              }
-              parent = parent.parentElement;
-              depth++;
+            if (keywords.every(k => normalizedText.includes(k.replace(/,/g, '')))) {
+              foundKeyword = true;
             }
 
             if (foundKeyword) {
@@ -342,14 +357,8 @@
       // ---- 沒有關鍵字：盲狙第一個可用區域 ----
       } else {
         for (const link of validAreaLinks) {
-          let parent = link;
-          let depth = 0;
-          let textForCheck = '';
-          while (parent && depth < 3) {
-            textForCheck = parent.textContent.toLowerCase();
-            parent = parent.parentElement;
-            depth++;
-          }
+          const container = getAreaContainer(link);
+          const textForCheck = container.textContent.toLowerCase();
 
           if (hasEnoughTickets(textForCheck)) {
             log('🔥 未設定關鍵字，盲狙第一個張數足夠的可用區域！');
