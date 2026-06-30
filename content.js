@@ -564,7 +564,7 @@
       if (captchaImg && !captchaImg._enlarged) {
         captchaImg._enlarged = true;
         // 使用 width/height 放大而非 transform，避免破壞排版而蓋住旁邊的輸入框
-        captchaImg.style.height = '60px'; 
+        captchaImg.style.height = '80px'; 
         captchaImg.style.width = 'auto';
         captchaImg.style.imageRendering = 'crisp-edges';
         captchaImg.style.verticalAlign = 'middle';
